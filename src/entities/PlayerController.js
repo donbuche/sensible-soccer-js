@@ -18,25 +18,17 @@ const SHOOT_HOLD_MAX = 650;
 const RECONTROL_COOLDOWN = 220;
 
 export class PlayerController {
-  constructor(scene, player, ball) {
+  constructor(scene, player, ball, controls) {
     this.scene = scene;
     this.player = player;
     this.ball = ball;
+    this.controls = controls;
 
     this.lastKickAt = 0;
     this.lastMoveDirection = new Phaser.Math.Vector2(0, 1);
     this.lastDirectionKey = "s";
-    this.spacePressedAt = null;
+    this.actionPressedAt = null;
     this.hasBall = false;
-
-    this.cursors = scene.input.keyboard.createCursorKeys();
-    this.wasd = scene.input.keyboard.addKeys({
-      up: Phaser.Input.Keyboard.KeyCodes.W,
-      down: Phaser.Input.Keyboard.KeyCodes.S,
-      left: Phaser.Input.Keyboard.KeyCodes.A,
-      right: Phaser.Input.Keyboard.KeyCodes.D,
-      shoot: Phaser.Input.Keyboard.KeyCodes.SPACE,
-    });
   }
 
   update() {
@@ -56,10 +48,6 @@ export class PlayerController {
     this.updateKickInput();
   }
 
-  getFacingDirection() {
-    return this.lastMoveDirection.clone();
-  }
-
   getFacingDirectionKey() {
     return this.lastDirectionKey;
   }
@@ -68,13 +56,17 @@ export class PlayerController {
     return this.hasBall;
   }
 
+  forceReleaseBall() {
+    this.hasBall = false;
+  }
+
   getInputDirection() {
     const direction = new Phaser.Math.Vector2(0, 0);
 
-    if (this.cursors.left.isDown || this.wasd.left.isDown) direction.x -= 1;
-    if (this.cursors.right.isDown || this.wasd.right.isDown) direction.x += 1;
-    if (this.cursors.up.isDown || this.wasd.up.isDown) direction.y -= 1;
-    if (this.cursors.down.isDown || this.wasd.down.isDown) direction.y += 1;
+    if (this.controls.left.isDown) direction.x -= 1;
+    if (this.controls.right.isDown) direction.x += 1;
+    if (this.controls.up.isDown) direction.y -= 1;
+    if (this.controls.down.isDown) direction.y += 1;
 
     return direction.normalize();
   }
@@ -91,7 +83,7 @@ export class PlayerController {
       const ballSpeed = this.ball.body.velocity.length();
 
       if (toBall.length() <= BALL_CONTROL_RADIUS && ballSpeed <= playerSpeed + 120) {
-        this.hasBall = true;
+        this.scene.requestPossession(this, toBall.length());
       }
     }
 
@@ -107,30 +99,29 @@ export class PlayerController {
   }
 
   updateKickInput() {
-    const shootKey = this.cursors.space ?? this.wasd.shoot;
     const now = this.scene.time.now;
 
-    if (Phaser.Input.Keyboard.JustDown(shootKey)) {
-      this.spacePressedAt = now;
+    if (Phaser.Input.Keyboard.JustDown(this.controls.action)) {
+      this.actionPressedAt = now;
     }
 
-    if (!Phaser.Input.Keyboard.JustUp(shootKey)) {
+    if (!Phaser.Input.Keyboard.JustUp(this.controls.action)) {
       return;
     }
 
-    if (this.spacePressedAt === null || !this.hasBall) {
-      this.spacePressedAt = null;
+    if (this.actionPressedAt === null || !this.hasBall) {
+      this.actionPressedAt = null;
       return;
     }
 
-    const holdDuration = now - this.spacePressedAt;
+    const holdDuration = now - this.actionPressedAt;
     if (holdDuration >= SHOOT_HOLD_THRESHOLD) {
       this.shoot(holdDuration);
     } else {
       this.pass();
     }
 
-    this.spacePressedAt = null;
+    this.actionPressedAt = null;
   }
 
   pass() {
@@ -154,6 +145,9 @@ export class PlayerController {
     }
 
     this.hasBall = false;
+    if (this.scene.activeController === this) {
+      this.scene.activeController = null;
+    }
     this.lastKickAt = this.scene.time.now;
     const carryOffset = BALL_CARRY_OFFSETS[this.lastDirectionKey];
     this.ball.setPosition(

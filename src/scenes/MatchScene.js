@@ -43,17 +43,30 @@ const DIRECTION_ANIMS = {
   sw: { frames: [20, 21, 22, 21], flipX: false },
 };
 
+const TEAM2_DIRECTION_ANIMS = {
+  s: { key: "team2-down-fixed", frames: [0, 1, 2, 1], flipX: false },
+  se: { frames: [23, 24, 25, 24], flipX: false },
+  e: { frames: [6, 7, 8, 7], flipX: false },
+  ne: { frames: [29, 30, 31, 30], flipX: false },
+  n: { key: "team2-up-fixed", frames: [0, 1, 2, 1], flipX: false },
+  nw: { frames: [26, 27, 28, 27], flipX: false },
+  w: { frames: [9, 10, 11, 10], flipX: false },
+  sw: { frames: [20, 21, 22, 21], flipX: false },
+};
+
 const ALIGNED_DIRECTION_TEXTURES = [
-  { key: "team1-up-fixed", sourceFrames: [0, 1, 2] },
-  { key: "team1-down-fixed", sourceFrames: [3, 4, 5] },
+  { key: "team1-up-fixed", sourceFrames: [0, 1, 2], sourceTextureKey: "team1" },
+  { key: "team1-down-fixed", sourceFrames: [3, 4, 5], sourceTextureKey: "team1" },
+  { key: "team2-up-fixed", sourceFrames: [0, 1, 2], sourceTextureKey: "team2" },
+  { key: "team2-down-fixed", sourceFrames: [3, 4, 5], sourceTextureKey: "team2" },
 ];
 
-function createAlignedDirectionTexture(scene, textureKey, sourceFrames) {
+function createAlignedDirectionTexture(scene, textureKey, sourceFrames, sourceTextureKey) {
   if (scene.textures.exists(textureKey)) {
     scene.textures.remove(textureKey);
   }
 
-  const sourceTexture = scene.textures.get("team1");
+  const sourceTexture = scene.textures.get(sourceTextureKey);
   const sourceImage = sourceTexture.getSourceImage();
   const sampleCanvas = scene.textures.createCanvas(`${textureKey}-sample`, 16, 16);
   const sampleContext = sampleCanvas.context;
@@ -149,8 +162,8 @@ function createBallTexture(scene) {
 }
 
 function ensureAnimations(scene) {
-  ALIGNED_DIRECTION_TEXTURES.forEach(({ key, sourceFrames }) => {
-    createAlignedDirectionTexture(scene, key, sourceFrames);
+  ALIGNED_DIRECTION_TEXTURES.forEach(({ key, sourceFrames, sourceTextureKey }) => {
+    createAlignedDirectionTexture(scene, key, sourceFrames, sourceTextureKey);
   });
   createBallTexture(scene);
 
@@ -171,6 +184,21 @@ function ensureAnimations(scene) {
       key,
       frames: config.frames.map((frame) => ({
         key: config.key ?? "team1",
+        frame,
+      })),
+      frameRate: 10,
+      repeat: -1,
+    });
+  }
+
+  for (const [direction, config] of Object.entries(TEAM2_DIRECTION_ANIMS)) {
+    const key = `team2-${direction}`;
+    if (scene.anims.exists(key)) continue;
+
+    scene.anims.create({
+      key,
+      frames: config.frames.map((frame) => ({
+        key: config.key ?? "team2",
         frame,
       })),
       frameRate: 10,
@@ -225,6 +253,14 @@ function syncPlayerAnimation(player, direction) {
   player.play(`team1-${direction}`, true);
 }
 
+function syncTeam2Animation(player, direction) {
+  const { flipX, frames } = TEAM2_DIRECTION_ANIMS[direction];
+
+  player.setFlipX(flipX);
+  player.stop();
+  player.setTexture(TEAM2_DIRECTION_ANIMS[direction].key ?? "team2", frames[0]);
+}
+
 function syncLayering(player, ball, direction) {
   const playerAboveBall = direction === "n" || direction === "ne" || direction === "nw";
 
@@ -240,13 +276,13 @@ function syncLayering(player, ball, direction) {
 
 function syncBallMotion(ball, hasBall) {
   const direction = hasBall
-    ? ball.scene.controller.getFacingDirectionKey()
+    ? ball.scene.activeController.getFacingDirectionKey()
     : directionVectorToKey(ball.body.velocity);
 
   ball.setAngle(BALL_DIRECTION_ANGLE[direction] ?? 0);
 
   if (hasBall) {
-    const playerSpeed = ball.scene.player.body.velocity.length();
+    const playerSpeed = ball.scene.activeController.player.body.velocity.length();
 
     ball.body.setVelocity(0, 0);
 
@@ -284,6 +320,7 @@ function syncBallMotion(ball, hasBall) {
 export class MatchScene extends Phaser.Scene {
   constructor() {
     super("match");
+    this.possessionClaim = null;
   }
 
   create() {
@@ -294,6 +331,30 @@ export class MatchScene extends Phaser.Scene {
     this.scale.on("resize", () => {
       this.scene.restart();
     });
+  }
+
+  requestPossession(controller, distanceToBall) {
+    if (controller.isControllingBall()) {
+      return;
+    }
+
+    if (!this.possessionClaim || distanceToBall < this.possessionClaim.distance) {
+      this.possessionClaim = { controller, distance: distanceToBall };
+    }
+  }
+
+  resolvePossessionClaims() {
+    if (!this.possessionClaim) {
+      return;
+    }
+
+    const { controller } = this.possessionClaim;
+    if (this.activeController && this.activeController !== controller) {
+      this.activeController.forceReleaseBall();
+    }
+    controller.hasBall = true;
+    this.activeController = controller;
+    this.possessionClaim = null;
   }
 
   buildWorld() {
@@ -321,6 +382,21 @@ export class MatchScene extends Phaser.Scene {
 
     this.add.image(0, 0, "field").setOrigin(0).setDisplaySize(worldWidth, worldHeight);
 
+    this.team1Controls = this.input.keyboard.addKeys({
+      up: Phaser.Input.Keyboard.KeyCodes.UP,
+      down: Phaser.Input.Keyboard.KeyCodes.DOWN,
+      left: Phaser.Input.Keyboard.KeyCodes.LEFT,
+      right: Phaser.Input.Keyboard.KeyCodes.RIGHT,
+      action: Phaser.Input.Keyboard.KeyCodes.SPACE,
+    });
+    this.team2Controls = this.input.keyboard.addKeys({
+      up: Phaser.Input.Keyboard.KeyCodes.W,
+      down: Phaser.Input.Keyboard.KeyCodes.S,
+      left: Phaser.Input.Keyboard.KeyCodes.A,
+      right: Phaser.Input.Keyboard.KeyCodes.D,
+      action: Phaser.Input.Keyboard.KeyCodes.SHIFT,
+    });
+
     const playerX = worldWidth / 2;
     const playerY = worldHeight * 0.58;
 
@@ -345,27 +421,42 @@ export class MatchScene extends Phaser.Scene {
     this.ball.body.setMaxVelocity(1200, 1200);
 
     this.opponent = this.add
-      .sprite(worldWidth / 2 + 120, worldHeight * 0.35, "team2", 48)
+      .sprite(worldWidth / 2 + 120, worldHeight * 0.35, "team2", 0)
       .setScale(PLAYER_SCALE)
       .setDepth(3);
+    this.physics.add.existing(this.opponent);
+    this.opponent.body.setSize(6, 5);
+    this.opponent.body.setOffset(6, 10);
+    this.opponent.body.setCollideWorldBounds(true);
+    this.opponent.body.setDrag(900, 900);
 
-    this.controller = new PlayerController(this, this.player, this.ball);
+    this.activeController = null;
+    this.team1Controller = new PlayerController(this, this.player, this.ball, this.team1Controls);
+    this.team2Controller = new PlayerController(this, this.opponent, this.ball, this.team2Controls);
     this.playerBallCollider = this.physics.add.collider(this.player, this.ball);
-    const facing = this.controller.getFacingDirectionKey();
+    this.opponentBallCollider = this.physics.add.collider(this.opponent, this.ball);
+    const facing = this.team1Controller.getFacingDirectionKey();
     syncPlayerAnimation(this.player, facing);
+    syncTeam2Animation(this.opponent, "n");
     syncLayering(this.player, this.ball, facing);
 
-    this.cameras.main.startFollow(this.player, false, 0.12, 0.12, 0, 0);
-    this.cameras.main.scrollX = 0;
+    this.cameras.main.startFollow(this.ball, false, 0.14, 0.14, 0, 0);
   }
 
   update() {
-    this.controller.update();
-    this.playerBallCollider.active = !this.controller.isControllingBall();
-    const facing = this.controller.getFacingDirectionKey();
+    this.possessionClaim = null;
+    this.team1Controller.update();
+    this.team2Controller.update();
+    this.resolvePossessionClaims();
+    this.playerBallCollider.active = !this.team1Controller.isControllingBall();
+    this.opponentBallCollider.active = !this.team2Controller.isControllingBall();
+    const facing = this.team1Controller.getFacingDirectionKey();
+    const team2Facing = this.team2Controller.getFacingDirectionKey();
     syncPlayerAnimation(this.player, facing);
-    syncLayering(this.player, this.ball, facing);
-    syncBallMotion(this.ball, this.controller.isControllingBall());
-    this.cameras.main.scrollX = 0;
+    syncTeam2Animation(this.opponent, team2Facing);
+    const activePlayer = this.activeController?.player ?? this.player;
+    const activeDirection = this.activeController?.getFacingDirectionKey() ?? facing;
+    syncLayering(activePlayer, this.ball, activeDirection);
+    syncBallMotion(this.ball, Boolean(this.activeController));
   }
 }
