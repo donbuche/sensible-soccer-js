@@ -1,0 +1,33 @@
+:root {
+  color-scheme: dark;
+  background: #0d1f14;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  min-height: 100%;
+  background: #0d1f14;
+}
+
+body {
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
+#game {
+  width: 100vw;
+  min-width: 100vw;
+  line-height: 0;
+}
+
+canvas {
+  display: block;
+  width: 100%;
+  height: auto;
+  image-rendering: pixelated;
+}
