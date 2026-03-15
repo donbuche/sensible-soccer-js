@@ -1,14 +1,14 @@
 const PLAYER_SPEED = 180;
 const BALL_CONTROL_RADIUS = 30;
 const BALL_CARRY_OFFSETS = {
-  n: { x: 0, y: -18 },
-  ne: { x: 14, y: -14 },
-  e: { x: 16, y: 2 },
-  se: { x: 14, y: 16 },
+  n: { x: 6, y: -16 },
+  ne: { x: 5, y: -5 },
+  e: { x: 12, y: 8 },
+  se: { x: 8, y: 18 },
   s: { x: 0, y: 20 },
-  sw: { x: -14, y: 16 },
-  w: { x: -16, y: 2 },
-  nw: { x: -14, y: -14 },
+  sw: { x: -25, y: 20 },
+  w: { x: -33, y: 8 },
+  nw: { x: -26, y: -6 },
 };
 const PASS_POWER = 360;
 const SHOOT_POWER_MIN = 640;

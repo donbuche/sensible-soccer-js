@@ -15,6 +15,22 @@ const BALL_SCALE = 2.4;
 const BALL_STOP_SPEED = 18;
 const BALL_FREE_FRICTION = 0.988;
 const BALL_BOUNCE = 0.62;
+const BALL_SOURCE_FRAMES = [
+  { x: 1, y: 1, width: 4, height: 4 },
+  { x: 7, y: 1, width: 4, height: 4 },
+  { x: 13, y: 1, width: 4, height: 4 },
+  { x: 19, y: 1, width: 4, height: 4 },
+];
+const BALL_DIRECTION_ANGLE = {
+  e: 0,
+  se: 45,
+  s: 90,
+  sw: 135,
+  w: 180,
+  nw: 225,
+  n: 270,
+  ne: 315,
+};
 
 const DIRECTION_ANIMS = {
   s: { key: "team1-down-fixed", frames: [0, 1, 2, 1], flipX: false },
@@ -97,16 +113,52 @@ function createAlignedDirectionTexture(scene, textureKey, sourceFrames) {
   });
 }
 
+function createBallTexture(scene) {
+  if (scene.textures.exists("ball")) {
+    scene.textures.remove("ball");
+  }
+
+  const sourceImage = scene.textures.get("ball-strip").getSourceImage();
+  const frameWidth = BALL_SOURCE_FRAMES[0].width;
+  const frameHeight = BALL_SOURCE_FRAMES[0].height;
+  const texture = scene.textures.createCanvas(
+    "ball",
+    frameWidth * BALL_SOURCE_FRAMES.length,
+    frameHeight
+  );
+
+  BALL_SOURCE_FRAMES.forEach((frame, index) => {
+    texture.context.drawImage(
+      sourceImage,
+      frame.x,
+      frame.y,
+      frame.width,
+      frame.height,
+      index * frameWidth,
+      0,
+      frameWidth,
+      frameHeight
+    );
+  });
+
+  texture.refresh();
+  texture.add("__BASE", 0, 0, 0, frameWidth * BALL_SOURCE_FRAMES.length, frameHeight);
+  BALL_SOURCE_FRAMES.forEach((_, index) => {
+    texture.add(index, 0, index * frameWidth, 0, frameWidth, frameHeight);
+  });
+}
+
 function ensureAnimations(scene) {
   ALIGNED_DIRECTION_TEXTURES.forEach(({ key, sourceFrames }) => {
     createAlignedDirectionTexture(scene, key, sourceFrames);
   });
+  createBallTexture(scene);
 
   if (!scene.anims.exists("ball-roll")) {
     scene.anims.create({
       key: "ball-roll",
-      frames: scene.anims.generateFrameNumbers("ball", { start: 0, end: 8 }),
-      frameRate: 16,
+      frames: scene.anims.generateFrameNumbers("ball", { start: 0, end: 3 }),
+      frameRate: 14,
       repeat: -1,
     });
   }
@@ -187,10 +239,28 @@ function syncLayering(player, ball, direction) {
 }
 
 function syncBallMotion(ball, hasBall) {
+  const direction = hasBall
+    ? ball.scene.controller.getFacingDirectionKey()
+    : directionVectorToKey(ball.body.velocity);
+
+  ball.setAngle(BALL_DIRECTION_ANGLE[direction] ?? 0);
+
   if (hasBall) {
+    const playerSpeed = ball.scene.player.body.velocity.length();
+
     ball.body.setVelocity(0, 0);
-    ball.stop();
-    ball.setFrame(0);
+
+    if (playerSpeed < BALL_STOP_SPEED) {
+      ball.anims.stop();
+      ball.setFrame(0);
+      return;
+    }
+
+    if (!ball.anims.isPlaying) {
+      ball.play("ball-roll");
+    }
+
+    ball.anims.msPerFrame = Phaser.Math.Clamp(150 - playerSpeed * 0.18, 50, 150);
     return;
   }
 
@@ -199,7 +269,7 @@ function syncBallMotion(ball, hasBall) {
 
   if (speed < BALL_STOP_SPEED) {
     ball.body.setVelocity(0, 0);
-    ball.stop();
+    ball.anims.stop();
     ball.setFrame(0);
     return;
   }
@@ -207,6 +277,8 @@ function syncBallMotion(ball, hasBall) {
   if (!ball.anims.isPlaying) {
     ball.play("ball-roll");
   }
+
+  ball.anims.msPerFrame = Phaser.Math.Clamp(140 - speed * 0.08, 45, 140);
 }
 
 export class MatchScene extends Phaser.Scene {
@@ -263,9 +335,9 @@ export class MatchScene extends Phaser.Scene {
 
     this.ball = this.physics.add
       .sprite(playerX + 32, playerY - 8, "ball", 0)
-      .setScale(BALL_SCALE)
+      .setScale(3)
       .setDepth(4);
-    this.ball.body.setCircle(3, 0, 0);
+    this.ball.body.setCircle(2, 0, 0);
     this.ball.body.setBounce(BALL_BOUNCE);
     this.ball.body.setCollideWorldBounds(true);
     this.ball.body.setDamping(false);
