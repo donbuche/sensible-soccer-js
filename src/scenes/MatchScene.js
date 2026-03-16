@@ -421,7 +421,7 @@ export class MatchScene extends Phaser.Scene {
     this.ball.body.setMaxVelocity(1200, 1200);
 
     this.opponent = this.add
-      .sprite(worldWidth / 2 + 120, worldHeight * 0.35, "team2", 0)
+      .sprite(worldWidth / 2, worldHeight * 0.42, "team2", 0)
       .setScale(PLAYER_SCALE)
       .setDepth(3);
     this.physics.add.existing(this.opponent);

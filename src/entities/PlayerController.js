@@ -1,7 +1,7 @@
 const PLAYER_SPEED = 180;
 const BALL_CONTROL_RADIUS = 30;
 const BALL_CARRY_OFFSETS = {
-  n: { x: 6, y: -16 },
+  n: { x: 6, y: -6 },
   ne: { x: 5, y: -5 },
   e: { x: 12, y: 8 },
   se: { x: 8, y: 18 },

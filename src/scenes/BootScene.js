@@ -4,7 +4,7 @@ export class BootScene extends Phaser.Scene {
   }
 
   preload() {
-    this.load.image("field", "assets/sprites/pitch/field.png");
+    this.load.image("field", "assets/sprites/pitch/field_upscaled.png");
     this.load.image("ball-strip", "assets/sprites/ball/ball.png");
     this.load.spritesheet("team1", "assets/sprites/players/team1.png", {
       frameWidth: 16,
