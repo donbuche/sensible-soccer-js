@@ -254,11 +254,18 @@ function syncPlayerAnimation(player, direction) {
 }
 
 function syncTeam2Animation(player, direction) {
+  const isMoving = player.body.velocity.lengthSq() > 180;
   const { flipX, frames } = TEAM2_DIRECTION_ANIMS[direction];
 
   player.setFlipX(flipX);
-  player.stop();
-  player.setTexture(TEAM2_DIRECTION_ANIMS[direction].key ?? "team2", frames[0]);
+
+  if (!isMoving) {
+    player.stop();
+    player.setTexture(TEAM2_DIRECTION_ANIMS[direction].key ?? "team2", frames[0]);
+    return;
+  }
+
+  player.play(`team2-${direction}`, true);
 }
 
 function syncLayering(player, ball, direction) {
