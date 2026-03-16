@@ -12,8 +12,8 @@ const BALL_CARRY_OFFSETS = {
   nw: { x: -26, y: -6 },
 };
 const PASS_POWER = 360;
-const SHOOT_POWER_MIN = 640;
-const SHOOT_POWER_MAX = 860;
+const SHOOT_POWER_MIN = 1283;
+const SHOOT_POWER_MAX = 1721;
 const SHOOT_HOLD_THRESHOLD = 180;
 const SHOOT_HOLD_MAX = 650;
 const RECONTROL_COOLDOWN = 220;

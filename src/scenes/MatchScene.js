@@ -15,6 +15,17 @@ const BALL_SCALE = 2.4;
 const BALL_STOP_SPEED = 18;
 const BALL_FREE_FRICTION = 0.988;
 const BALL_BOUNCE = 0.62;
+const GOAL_BALL_BOUNCE = 0.18;
+const GOAL_BALL_FRICTION = 0.94;
+const GOAL_BALL_STOP_SPEED = 9;
+const BOTTOM_GOAL_POSITION = {
+  x: 0.5,
+  goalLineY: 0.875,
+  width: 0.12,
+  penaltySpotY: 0.752,
+};
+const GOAL_WALL_THICKNESS = 6;
+const GOAL_BACK_DEPTH = 18;
 const BALL_SOURCE_FRAMES = [
   { x: 1, y: 1, width: 4, height: 4 },
   { x: 7, y: 1, width: 4, height: 4 },
@@ -272,13 +283,13 @@ function syncLayering(player, ball, direction) {
   const playerAboveBall = direction === "n" || direction === "ne" || direction === "nw";
 
   if (playerAboveBall) {
-    player.setDepth(5);
+    player.setDepth(7);
     ball.setDepth(4);
     return;
   }
 
-  ball.setDepth(5);
-  player.setDepth(4);
+  ball.setDepth(4);
+  player.setDepth(7);
 }
 
 function syncBallMotion(ball, hasBall) {
@@ -307,6 +318,25 @@ function syncBallMotion(ball, hasBall) {
     return;
   }
 
+  if (ball.scene.goalScored) {
+    ball.body.velocity.scale(GOAL_BALL_FRICTION);
+    const goalSpeed = ball.body.velocity.length();
+
+    if (goalSpeed < GOAL_BALL_STOP_SPEED) {
+      ball.body.setVelocity(0, 0);
+      ball.anims.stop();
+      ball.setFrame(0);
+      return;
+    }
+
+    if (!ball.anims.isPlaying) {
+      ball.play("ball-roll");
+    }
+
+    ball.anims.msPerFrame = Phaser.Math.Clamp(150 - goalSpeed * 0.1, 60, 150);
+    return;
+  }
+
   ball.body.velocity.scale(BALL_FREE_FRICTION);
   const speed = ball.body.velocity.length();
 
@@ -328,6 +358,7 @@ export class MatchScene extends Phaser.Scene {
   constructor() {
     super("match");
     this.possessionClaim = null;
+    this.goalScored = false;
   }
 
   create() {
@@ -362,6 +393,10 @@ export class MatchScene extends Phaser.Scene {
     controller.hasBall = true;
     controller.hasBallSince = this.time.now;
     this.activeController = controller;
+    if (this.goalScored) {
+      this.goalScored = false;
+      this.ball.body.setBounce(BALL_BOUNCE);
+    }
     this.possessionClaim = null;
   }
 
@@ -390,6 +425,79 @@ export class MatchScene extends Phaser.Scene {
 
     this.add.image(0, 0, "field").setOrigin(0).setDisplaySize(worldWidth, worldHeight);
 
+    const goalDisplayWidth = worldWidth * BOTTOM_GOAL_POSITION.width;
+    this.bottomGoalBack = this.add
+      .image(
+        worldWidth * BOTTOM_GOAL_POSITION.x,
+        worldHeight * BOTTOM_GOAL_POSITION.goalLineY,
+        "bottom-goal-back"
+      )
+      .setOrigin(0.5, 0)
+      .setDisplaySize(
+        goalDisplayWidth,
+        goalDisplayWidth * (46 / 322)
+      )
+      .setDepth(8);
+    this.bottomGoalFront = this.add
+      .image(
+        worldWidth * BOTTOM_GOAL_POSITION.x,
+        worldHeight * BOTTOM_GOAL_POSITION.goalLineY,
+        "bottom-goal-front"
+      )
+      .setOrigin(0.5, 1)
+      .setDisplaySize(
+        goalDisplayWidth,
+        goalDisplayWidth * (80 / 322)
+      )
+      .setDepth(8);
+
+    const goalCenterX = worldWidth * BOTTOM_GOAL_POSITION.x;
+    const goalLineY = worldHeight * BOTTOM_GOAL_POSITION.goalLineY;
+    this.bottomGoalLineY = goalLineY;
+    const halfGoalWidth = goalDisplayWidth / 2;
+    const goalBackHeight = goalDisplayWidth * (46 / 322);
+    const wallHeight = goalBackHeight + GOAL_WALL_THICKNESS;
+    const leftPostX = goalCenterX - halfGoalWidth + GOAL_WALL_THICKNESS / 2;
+    const rightPostX = goalCenterX + halfGoalWidth - GOAL_WALL_THICKNESS / 2;
+    const goalWallCenterY = goalLineY + wallHeight / 2;
+
+    this.bottomGoalLeftWall = this.add.rectangle(
+      leftPostX,
+      goalWallCenterY,
+      GOAL_WALL_THICKNESS,
+      wallHeight,
+      0xff0000,
+      0
+    );
+    this.physics.add.existing(this.bottomGoalLeftWall, true);
+
+    this.bottomGoalRightWall = this.add.rectangle(
+      rightPostX,
+      goalWallCenterY,
+      GOAL_WALL_THICKNESS,
+      wallHeight,
+      0xff0000,
+      0
+    );
+    this.physics.add.existing(this.bottomGoalRightWall, true);
+
+    this.bottomGoalBackWall = this.add.rectangle(
+      goalCenterX,
+      goalLineY + goalBackHeight - GOAL_WALL_THICKNESS / 2,
+      goalDisplayWidth,
+      GOAL_WALL_THICKNESS,
+      0xff0000,
+      0
+    );
+    this.physics.add.existing(this.bottomGoalBackWall, true);
+
+    this.bottomGoalZone = this.add.zone(
+      goalCenterX,
+      goalLineY + goalBackHeight / 2,
+      goalDisplayWidth - GOAL_WALL_THICKNESS * 2,
+      goalBackHeight
+    );
+
     this.team1Controls = this.input.keyboard.addKeys({
       up: Phaser.Input.Keyboard.KeyCodes.UP,
       down: Phaser.Input.Keyboard.KeyCodes.DOWN,
@@ -405,8 +513,8 @@ export class MatchScene extends Phaser.Scene {
       action: Phaser.Input.Keyboard.KeyCodes.SHIFT,
     });
 
-    const playerX = worldWidth / 2;
-    const playerY = worldHeight * 0.58;
+    const playerX = worldWidth * BOTTOM_GOAL_POSITION.x;
+    const playerY = worldHeight * BOTTOM_GOAL_POSITION.penaltySpotY;
 
     this.player = this.physics.add
       .sprite(playerX, playerY, "team1", DIRECTION_ANIMS.s.frames[0])
@@ -419,7 +527,7 @@ export class MatchScene extends Phaser.Scene {
     this.player.body.setBounce(0.08);
 
     this.ball = this.physics.add
-      .sprite(playerX + 32, playerY - 8, "ball", 0)
+      .sprite(playerX, playerY, "ball", 0)
       .setScale(3)
       .setDepth(4);
     this.ball.body.setCircle(2, 0, 0);
@@ -446,6 +554,15 @@ export class MatchScene extends Phaser.Scene {
     this.playerBallCollider = this.physics.add.collider(this.player, this.ball);
     this.opponentBallCollider = this.physics.add.collider(this.opponent, this.ball);
     this.playersCollider = this.physics.add.collider(this.player, this.opponent);
+    this.ballGoalLeftCollider = this.physics.add.collider(this.ball, this.bottomGoalLeftWall);
+    this.ballGoalRightCollider = this.physics.add.collider(this.ball, this.bottomGoalRightWall);
+    this.ballGoalBackCollider = this.physics.add.collider(this.ball, this.bottomGoalBackWall);
+    this.playerGoalLeftCollider = this.physics.add.collider(this.player, this.bottomGoalLeftWall);
+    this.playerGoalRightCollider = this.physics.add.collider(this.player, this.bottomGoalRightWall);
+    this.playerGoalBackCollider = this.physics.add.collider(this.player, this.bottomGoalBackWall);
+    this.opponentGoalLeftCollider = this.physics.add.collider(this.opponent, this.bottomGoalLeftWall);
+    this.opponentGoalRightCollider = this.physics.add.collider(this.opponent, this.bottomGoalRightWall);
+    this.opponentGoalBackCollider = this.physics.add.collider(this.opponent, this.bottomGoalBackWall);
     const facing = this.team1Controller.getFacingDirectionKey();
     syncPlayerAnimation(this.player, facing);
     syncTeam2Animation(this.opponent, "n");
@@ -469,5 +586,50 @@ export class MatchScene extends Phaser.Scene {
     const activeDirection = this.activeController?.getFacingDirectionKey() ?? facing;
     syncLayering(activePlayer, this.ball, activeDirection);
     syncBallMotion(this.ball, Boolean(this.activeController));
+    this.checkBottomGoal();
+    this.resetGoalStateIfBallReturnedToField();
+  }
+
+  checkBottomGoal() {
+    if (this.goalScored) {
+      return;
+    }
+
+    const goalBounds = this.bottomGoalZone.getBounds();
+    const ballBounds = this.ball.getBounds();
+    const fullyPastGoalLine = ballBounds.top > this.bottomGoalLineY;
+    const insideGoalMouth =
+      ballBounds.left >= goalBounds.left &&
+      ballBounds.right <= goalBounds.right &&
+      ballBounds.bottom <= goalBounds.bottom;
+
+    if (!fullyPastGoalLine || !insideGoalMouth) {
+      return;
+    }
+
+    this.goalScored = true;
+    this.ball.body.setBounce(GOAL_BALL_BOUNCE);
+    this.activeController?.forceReleaseBall();
+    this.activeController = null;
+  }
+
+  resetGoalStateIfBallReturnedToField() {
+    if (!this.goalScored || this.activeController) {
+      return;
+    }
+
+    const goalBounds = this.bottomGoalZone.getBounds();
+    const ballBounds = this.ball.getBounds();
+    const outsideGoalMouth =
+      ballBounds.right < goalBounds.left ||
+      ballBounds.left > goalBounds.right ||
+      ballBounds.top <= this.bottomGoalLineY;
+
+    if (!outsideGoalMouth) {
+      return;
+    }
+
+    this.goalScored = false;
+    this.ball.body.setBounce(BALL_BOUNCE);
   }
 }
