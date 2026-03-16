@@ -15,9 +15,10 @@ const BALL_SCALE = 2.4;
 const BALL_STOP_SPEED = 18;
 const BALL_FREE_FRICTION = 0.988;
 const BALL_BOUNCE = 0.62;
-const GOAL_BALL_BOUNCE = 0.18;
-const GOAL_BALL_FRICTION = 0.94;
-const GOAL_BALL_STOP_SPEED = 9;
+const GOAL_BALL_BOUNCE = 0.2;
+const GOAL_BALL_FRICTION = 0.95;
+const GOAL_BALL_STOP_SPEED = 11;
+const GOAL_COLLISION_DAMPING = 0.72;
 const BOTTOM_GOAL_POSITION = {
   x: 0.5,
   goalLineY: 0.875,
@@ -26,6 +27,7 @@ const BOTTOM_GOAL_POSITION = {
 };
 const GOAL_WALL_THICKNESS = 6;
 const GOAL_BACK_DEPTH = 18;
+const DEBUG_GOAL_WALLS = true;
 const BALL_SOURCE_FRAMES = [
   { x: 1, y: 1, width: 4, height: 4 },
   { x: 7, y: 1, width: 4, height: 4 },
@@ -393,11 +395,25 @@ export class MatchScene extends Phaser.Scene {
     controller.hasBall = true;
     controller.hasBallSince = this.time.now;
     this.activeController = controller;
-    if (this.goalScored) {
-      this.goalScored = false;
-      this.ball.body.setBounce(BALL_BOUNCE);
-    }
+    this.resetGoalBallState();
     this.possessionClaim = null;
+  }
+
+  handleGoalWallCollision() {
+    if (!this.goalScored) {
+      return;
+    }
+
+    this.ball.body.velocity.scale(GOAL_COLLISION_DAMPING);
+  }
+
+  resetGoalBallState() {
+    if (!this.goalScored) {
+      return;
+    }
+
+    this.goalScored = false;
+    this.ball.body.setBounce(BALL_BOUNCE);
   }
 
   buildWorld() {
@@ -467,9 +483,10 @@ export class MatchScene extends Phaser.Scene {
       GOAL_WALL_THICKNESS,
       wallHeight,
       0xff0000,
-      0
+      DEBUG_GOAL_WALLS ? 0.35 : 0
     );
     this.physics.add.existing(this.bottomGoalLeftWall, true);
+    this.bottomGoalLeftWall.setDepth(20);
 
     this.bottomGoalRightWall = this.add.rectangle(
       rightPostX,
@@ -477,9 +494,10 @@ export class MatchScene extends Phaser.Scene {
       GOAL_WALL_THICKNESS,
       wallHeight,
       0xff0000,
-      0
+      DEBUG_GOAL_WALLS ? 0.35 : 0
     );
     this.physics.add.existing(this.bottomGoalRightWall, true);
+    this.bottomGoalRightWall.setDepth(20);
 
     this.bottomGoalBackWall = this.add.rectangle(
       goalCenterX,
@@ -487,9 +505,10 @@ export class MatchScene extends Phaser.Scene {
       goalDisplayWidth,
       GOAL_WALL_THICKNESS,
       0xff0000,
-      0
+      DEBUG_GOAL_WALLS ? 0.35 : 0
     );
     this.physics.add.existing(this.bottomGoalBackWall, true);
+    this.bottomGoalBackWall.setDepth(20);
 
     this.bottomGoalZone = this.add.zone(
       goalCenterX,
@@ -554,9 +573,21 @@ export class MatchScene extends Phaser.Scene {
     this.playerBallCollider = this.physics.add.collider(this.player, this.ball);
     this.opponentBallCollider = this.physics.add.collider(this.opponent, this.ball);
     this.playersCollider = this.physics.add.collider(this.player, this.opponent);
-    this.ballGoalLeftCollider = this.physics.add.collider(this.ball, this.bottomGoalLeftWall);
-    this.ballGoalRightCollider = this.physics.add.collider(this.ball, this.bottomGoalRightWall);
-    this.ballGoalBackCollider = this.physics.add.collider(this.ball, this.bottomGoalBackWall);
+    this.ballGoalLeftCollider = this.physics.add.collider(
+      this.ball,
+      this.bottomGoalLeftWall,
+      () => this.handleGoalWallCollision()
+    );
+    this.ballGoalRightCollider = this.physics.add.collider(
+      this.ball,
+      this.bottomGoalRightWall,
+      () => this.handleGoalWallCollision()
+    );
+    this.ballGoalBackCollider = this.physics.add.collider(
+      this.ball,
+      this.bottomGoalBackWall,
+      () => this.handleGoalWallCollision()
+    );
     this.playerGoalLeftCollider = this.physics.add.collider(this.player, this.bottomGoalLeftWall);
     this.playerGoalRightCollider = this.physics.add.collider(this.player, this.bottomGoalRightWall);
     this.playerGoalBackCollider = this.physics.add.collider(this.player, this.bottomGoalBackWall);
@@ -587,6 +618,7 @@ export class MatchScene extends Phaser.Scene {
     syncLayering(activePlayer, this.ball, activeDirection);
     syncBallMotion(this.ball, Boolean(this.activeController));
     this.checkBottomGoal();
+    this.keepFreeBallInsideBottomGoal();
     this.resetGoalStateIfBallReturnedToField();
   }
 
@@ -629,7 +661,38 @@ export class MatchScene extends Phaser.Scene {
       return;
     }
 
-    this.goalScored = false;
-    this.ball.body.setBounce(BALL_BOUNCE);
+    this.resetGoalBallState();
+  }
+
+  keepFreeBallInsideBottomGoal() {
+    if (!this.goalScored || this.activeController) {
+      return;
+    }
+
+    const goalBounds = this.bottomGoalZone.getBounds();
+    const ballBounds = this.ball.getBounds();
+    const ballRadius = this.ball.displayHeight / 2;
+    const overlapsGoalWidth =
+      ballBounds.right > goalBounds.left && ballBounds.left < goalBounds.right;
+    const tryingToExitToField =
+      overlapsGoalWidth &&
+      ballBounds.top <= this.bottomGoalLineY &&
+      this.ball.body.velocity.y < 0;
+
+    if (!tryingToExitToField) {
+      const slippingBelowBack = ballBounds.bottom >= goalBounds.bottom;
+      if (!slippingBelowBack) {
+        return;
+      }
+
+      this.ball.y = goalBounds.bottom - ballRadius - 1;
+      this.ball.body.velocity.y = -Math.max(Math.abs(this.ball.body.velocity.y) * 0.18, 8);
+      this.ball.body.velocity.x *= 0.75;
+      return;
+    }
+
+    this.ball.y = this.bottomGoalLineY + ballRadius + 1;
+    this.ball.body.velocity.y = Math.max(Math.abs(this.ball.body.velocity.y) * 0.18, 12);
+    this.ball.body.velocity.x *= 0.6;
   }
 }
