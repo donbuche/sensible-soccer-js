@@ -1,4 +1,4 @@
-# Sensible Soccer Phaser Fork
+# Sensible Soccer JS
 
 ![Screenshot](assets/docs/screenshot.jpg)
 
