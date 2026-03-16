@@ -360,6 +360,7 @@ export class MatchScene extends Phaser.Scene {
       this.activeController.forceReleaseBall();
     }
     controller.hasBall = true;
+    controller.hasBallSince = this.time.now;
     this.activeController = controller;
     this.possessionClaim = null;
   }
@@ -415,6 +416,7 @@ export class MatchScene extends Phaser.Scene {
     this.player.body.setOffset(6, 10);
     this.player.body.setCollideWorldBounds(true);
     this.player.body.setDrag(900, 900);
+    this.player.body.setBounce(0.08);
 
     this.ball = this.physics.add
       .sprite(playerX + 32, playerY - 8, "ball", 0)
@@ -436,12 +438,14 @@ export class MatchScene extends Phaser.Scene {
     this.opponent.body.setOffset(6, 10);
     this.opponent.body.setCollideWorldBounds(true);
     this.opponent.body.setDrag(900, 900);
+    this.opponent.body.setBounce(0.08);
 
     this.activeController = null;
     this.team1Controller = new PlayerController(this, this.player, this.ball, this.team1Controls);
     this.team2Controller = new PlayerController(this, this.opponent, this.ball, this.team2Controls);
     this.playerBallCollider = this.physics.add.collider(this.player, this.ball);
     this.opponentBallCollider = this.physics.add.collider(this.opponent, this.ball);
+    this.playersCollider = this.physics.add.collider(this.player, this.opponent);
     const facing = this.team1Controller.getFacingDirectionKey();
     syncPlayerAnimation(this.player, facing);
     syncTeam2Animation(this.opponent, "n");

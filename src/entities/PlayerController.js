@@ -1,4 +1,5 @@
-const PLAYER_SPEED = 180;
+const PLAYER_SPEED = 190;
+const PLAYER_SPEED_WITH_BALL = 170;
 const BALL_CONTROL_RADIUS = 30;
 const BALL_CARRY_OFFSETS = {
   n: { x: 6, y: -6 },
@@ -16,6 +17,8 @@ const SHOOT_POWER_MAX = 860;
 const SHOOT_HOLD_THRESHOLD = 180;
 const SHOOT_HOLD_MAX = 650;
 const RECONTROL_COOLDOWN = 220;
+const BALL_OWNER_PROTECTION = 160;
+const STEAL_EXTRA_REACH = -7;
 
 export class PlayerController {
   constructor(scene, player, ball, controls) {
@@ -29,6 +32,7 @@ export class PlayerController {
     this.lastDirectionKey = "s";
     this.actionPressedAt = null;
     this.hasBall = false;
+    this.hasBallSince = 0;
   }
 
   update() {
@@ -39,10 +43,8 @@ export class PlayerController {
       this.lastDirectionKey = this.scene.directionVectorToKey(direction);
     }
 
-    this.player.body.setVelocity(
-      direction.x * PLAYER_SPEED,
-      direction.y * PLAYER_SPEED
-    );
+    const speed = this.hasBall ? PLAYER_SPEED_WITH_BALL : PLAYER_SPEED;
+    this.player.body.setVelocity(direction.x * speed, direction.y * speed);
 
     this.updateBallPossession();
     this.updateKickInput();
@@ -58,6 +60,8 @@ export class PlayerController {
 
   forceReleaseBall() {
     this.hasBall = false;
+    this.hasBallSince = 0;
+    this.lastKickAt = this.scene.time.now;
   }
 
   getInputDirection() {
@@ -81,8 +85,15 @@ export class PlayerController {
     if (!this.hasBall && now - this.lastKickAt >= RECONTROL_COOLDOWN) {
       const playerSpeed = this.player.body.velocity.length();
       const ballSpeed = this.ball.body.velocity.length();
+      const activeController = this.scene.activeController;
+      const activeProtected =
+        activeController &&
+        activeController !== this &&
+        now - activeController.hasBallSince < BALL_OWNER_PROTECTION;
+      const controlRadius =
+        BALL_CONTROL_RADIUS + (activeController && activeController !== this ? STEAL_EXTRA_REACH : 0);
 
-      if (toBall.length() <= BALL_CONTROL_RADIUS && ballSpeed <= playerSpeed + 120) {
+      if (!activeProtected && toBall.length() <= controlRadius && ballSpeed <= playerSpeed + 120) {
         this.scene.requestPossession(this, toBall.length());
       }
     }
@@ -148,6 +159,7 @@ export class PlayerController {
     if (this.scene.activeController === this) {
       this.scene.activeController = null;
     }
+    this.hasBallSince = 0;
     this.lastKickAt = this.scene.time.now;
     const carryOffset = BALL_CARRY_OFFSETS[this.lastDirectionKey];
     this.ball.setPosition(
