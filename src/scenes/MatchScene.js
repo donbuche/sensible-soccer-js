@@ -28,6 +28,7 @@ const BOTTOM_GOAL_POSITION = {
 const GOAL_WALL_THICKNESS = 6;
 const GOAL_BACK_DEPTH = 18;
 const DEBUG_GOAL_WALLS = true;
+const TEAMMATE_CONTROL_SWITCH_RADIUS = 34;
 const BALL_SOURCE_FRAMES = [
   { x: 1, y: 1, width: 4, height: 4 },
   { x: 7, y: 1, width: 4, height: 4 },
@@ -66,6 +67,18 @@ const TEAM2_DIRECTION_ANIMS = {
   w: { frames: [9, 10, 11, 10], flipX: false },
   sw: { frames: [20, 21, 22, 21], flipX: false },
 };
+
+const TEAM1_TEAMMATE_LAYOUT = [
+  { x: 0.33, y: 0.77, direction: "n" },
+  { x: 0.44, y: 0.8, direction: "n" },
+  { x: 0.56, y: 0.8, direction: "n" },
+  { x: 0.67, y: 0.77, direction: "n" },
+  { x: 0.28, y: 0.65, direction: "n" },
+  { x: 0.43, y: 0.66, direction: "n" },
+  { x: 0.57, y: 0.66, direction: "n" },
+  { x: 0.72, y: 0.65, direction: "n" },
+  { x: 0.5, y: 0.54, direction: "n" },
+];
 
 const ALIGNED_DIRECTION_TEXTURES = [
   { key: "team1-up-fixed", sourceFrames: [0, 1, 2], sourceTextureKey: "team1" },
@@ -416,6 +429,101 @@ export class MatchScene extends Phaser.Scene {
     this.ball.body.setBounce(BALL_BOUNCE);
   }
 
+  createOutfieldPlayer(x, y, textureKey, direction = "n", immovable = false) {
+    const textureConfig = textureKey === "team1" ? DIRECTION_ANIMS[direction] : TEAM2_DIRECTION_ANIMS[direction];
+    const sprite = this.physics.add
+      .sprite(x, y, textureConfig.key ?? textureKey, textureConfig.frames[0])
+      .setScale(PLAYER_SCALE)
+      .setDepth(3);
+
+    sprite.body.setSize(6, 5);
+    sprite.body.setOffset(6, 10);
+    sprite.body.setCollideWorldBounds(true);
+    sprite.body.setDrag(900, 900);
+    sprite.body.setBounce(0.08);
+    sprite.body.setImmovable(immovable);
+
+    return sprite;
+  }
+
+  setControlledPlayerPhysics(sprite) {
+    sprite.body.setImmovable(false);
+    sprite.body.moves = true;
+    sprite.body.setVelocity(0, 0);
+  }
+
+  setPassiveTeammatePhysics(sprite) {
+    sprite.body.setVelocity(0, 0);
+    sprite.body.setImmovable(true);
+  }
+
+  rebuildControlledPlayerColliders() {
+    this.playerBallCollider?.destroy();
+    this.playersCollider?.destroy();
+    this.playerTeammatesCollider?.destroy();
+    this.playerGoalLeftCollider?.destroy();
+    this.playerGoalRightCollider?.destroy();
+    this.playerGoalBackCollider?.destroy();
+
+    this.playerBallCollider = this.physics.add.collider(this.player, this.ball);
+    this.playersCollider = this.physics.add.collider(this.player, this.opponent);
+    this.playerTeammatesCollider = this.physics.add.collider(this.player, this.team1Teammates);
+    this.playerGoalLeftCollider = this.physics.add.collider(this.player, this.bottomGoalLeftWall);
+    this.playerGoalRightCollider = this.physics.add.collider(this.player, this.bottomGoalRightWall);
+    this.playerGoalBackCollider = this.physics.add.collider(this.player, this.bottomGoalBackWall);
+  }
+
+  switchTeam1ControlledPlayer(nextPlayer) {
+    if (!nextPlayer || nextPlayer === this.player) {
+      return;
+    }
+
+    const previousPlayer = this.player;
+    this.team1Teammates.remove(nextPlayer, false, false);
+    this.setControlledPlayerPhysics(nextPlayer);
+
+    this.team1Teammates.add(previousPlayer);
+    this.setPassiveTeammatePhysics(previousPlayer);
+
+    this.player = nextPlayer;
+    this.team1Controller.player = nextPlayer;
+    this.rebuildControlledPlayerColliders();
+  }
+
+  maybeSwitchTeam1Receiver() {
+    if (this.team1Controller.isControllingBall()) {
+      return;
+    }
+
+    let nearestTeammate = null;
+    let nearestDistance = Infinity;
+
+    this.team1Teammates.children.iterate((teammate) => {
+      const distance = Phaser.Math.Distance.Between(teammate.x, teammate.y, this.ball.x, this.ball.y);
+      if (distance < nearestDistance) {
+        nearestDistance = distance;
+        nearestTeammate = teammate;
+      }
+    });
+
+    if (!nearestTeammate || nearestDistance > TEAMMATE_CONTROL_SWITCH_RADIUS) {
+      return;
+    }
+
+    const controlledDistance = Phaser.Math.Distance.Between(
+      this.player.x,
+      this.player.y,
+      this.ball.x,
+      this.ball.y
+    );
+
+    if (nearestDistance >= controlledDistance) {
+      return;
+    }
+
+    this.switchTeam1ControlledPlayer(nearestTeammate);
+  }
+
   buildWorld() {
     const viewportWidth = this.scale.width;
     const viewportHeight = this.scale.height;
@@ -535,15 +643,7 @@ export class MatchScene extends Phaser.Scene {
     const playerX = worldWidth * BOTTOM_GOAL_POSITION.x;
     const playerY = worldHeight * BOTTOM_GOAL_POSITION.penaltySpotY;
 
-    this.player = this.physics.add
-      .sprite(playerX, playerY, "team1", DIRECTION_ANIMS.s.frames[0])
-      .setScale(PLAYER_SCALE)
-      .setDepth(3);
-    this.player.body.setSize(6, 5);
-    this.player.body.setOffset(6, 10);
-    this.player.body.setCollideWorldBounds(true);
-    this.player.body.setDrag(900, 900);
-    this.player.body.setBounce(0.08);
+    this.player = this.createOutfieldPlayer(playerX, playerY, "team1", "n");
 
     this.ball = this.physics.add
       .sprite(playerX, playerY, "ball", 0)
@@ -556,23 +656,28 @@ export class MatchScene extends Phaser.Scene {
     this.ball.body.setDrag(0, 0);
     this.ball.body.setMaxVelocity(1200, 1200);
 
-    this.opponent = this.add
-      .sprite(worldWidth / 2, worldHeight * 0.42, "team2", 0)
-      .setScale(PLAYER_SCALE)
-      .setDepth(3);
-    this.physics.add.existing(this.opponent);
-    this.opponent.body.setSize(6, 5);
-    this.opponent.body.setOffset(6, 10);
-    this.opponent.body.setCollideWorldBounds(true);
-    this.opponent.body.setDrag(900, 900);
-    this.opponent.body.setBounce(0.08);
+    this.opponent = this.createOutfieldPlayer(worldWidth / 2, worldHeight * 0.42, "team2", "s");
+
+    this.team1Teammates = this.physics.add.group();
+    TEAM1_TEAMMATE_LAYOUT.forEach(({ x, y, direction }) => {
+      const teammate = this.createOutfieldPlayer(
+        worldWidth * x,
+        worldHeight * y,
+        "team1",
+        direction,
+        true
+      );
+      this.team1Teammates.add(teammate);
+    });
 
     this.activeController = null;
     this.team1Controller = new PlayerController(this, this.player, this.ball, this.team1Controls);
     this.team2Controller = new PlayerController(this, this.opponent, this.ball, this.team2Controls);
-    this.playerBallCollider = this.physics.add.collider(this.player, this.ball);
+    this.rebuildControlledPlayerColliders();
     this.opponentBallCollider = this.physics.add.collider(this.opponent, this.ball);
-    this.playersCollider = this.physics.add.collider(this.player, this.opponent);
+    this.team1TeammateBallCollider = this.physics.add.collider(this.team1Teammates, this.ball);
+    this.opponentTeammatesCollider = this.physics.add.collider(this.opponent, this.team1Teammates);
+    this.team1TeammatesInternalCollider = this.physics.add.collider(this.team1Teammates, this.team1Teammates);
     this.ballGoalLeftCollider = this.physics.add.collider(
       this.ball,
       this.bottomGoalLeftWall,
@@ -588,12 +693,21 @@ export class MatchScene extends Phaser.Scene {
       this.bottomGoalBackWall,
       () => this.handleGoalWallCollision()
     );
-    this.playerGoalLeftCollider = this.physics.add.collider(this.player, this.bottomGoalLeftWall);
-    this.playerGoalRightCollider = this.physics.add.collider(this.player, this.bottomGoalRightWall);
-    this.playerGoalBackCollider = this.physics.add.collider(this.player, this.bottomGoalBackWall);
     this.opponentGoalLeftCollider = this.physics.add.collider(this.opponent, this.bottomGoalLeftWall);
     this.opponentGoalRightCollider = this.physics.add.collider(this.opponent, this.bottomGoalRightWall);
     this.opponentGoalBackCollider = this.physics.add.collider(this.opponent, this.bottomGoalBackWall);
+    this.team1TeammatesGoalLeftCollider = this.physics.add.collider(
+      this.team1Teammates,
+      this.bottomGoalLeftWall
+    );
+    this.team1TeammatesGoalRightCollider = this.physics.add.collider(
+      this.team1Teammates,
+      this.bottomGoalRightWall
+    );
+    this.team1TeammatesGoalBackCollider = this.physics.add.collider(
+      this.team1Teammates,
+      this.bottomGoalBackWall
+    );
     const facing = this.team1Controller.getFacingDirectionKey();
     syncPlayerAnimation(this.player, facing);
     syncTeam2Animation(this.opponent, "n");
@@ -606,6 +720,7 @@ export class MatchScene extends Phaser.Scene {
     this.possessionClaim = null;
     this.team1Controller.update();
     this.team2Controller.update();
+    this.maybeSwitchTeam1Receiver();
     this.resolvePossessionClaims();
     this.playerBallCollider.active = !this.team1Controller.isControllingBall();
     this.opponentBallCollider.active = !this.team2Controller.isControllingBall();
