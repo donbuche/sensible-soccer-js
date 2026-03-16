@@ -27,7 +27,7 @@ const BOTTOM_GOAL_POSITION = {
 };
 const GOAL_WALL_THICKNESS = 6;
 const GOAL_BACK_DEPTH = 18;
-const DEBUG_GOAL_WALLS = true;
+const DEBUG_GOAL_WALLS = false;
 const TEAMMATE_CONTROL_SWITCH_RADIUS = 34;
 const BALL_SOURCE_FRAMES = [
   { x: 1, y: 1, width: 4, height: 4 },
